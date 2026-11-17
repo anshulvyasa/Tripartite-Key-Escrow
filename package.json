@@ -4,6 +4,6 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "pnpm --filter @trivault/crypto-core test"
+    "test": "pnpm -r test"
   }
 }

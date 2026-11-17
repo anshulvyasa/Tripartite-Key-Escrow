@@ -8,6 +8,12 @@ importers:
 
   .: {}
 
+  packages/audit-log:
+    dependencies:
+      '@trivault/crypto-core':
+        specifier: workspace:*
+        version: link:../crypto-core
+
   packages/crypto-core:
     dependencies:
       '@noble/curves':
