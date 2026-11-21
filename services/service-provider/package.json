@@ -1,0 +1,17 @@
+{
+  "name": "@trivault/service-provider",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "test": "node --experimental-strip-types --test test/**/*.test.ts"
+  },
+  "dependencies": {
+    "@trivault/crypto-core": "workspace:*",
+    "@trivault/audit-log": "workspace:*",
+    "@trivault/certs": "workspace:*"
+  },
+  "devDependencies": {
+    "@trivault/client": "workspace:*"
+  }
+}

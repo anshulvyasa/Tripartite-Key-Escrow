@@ -4,9 +4,14 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "pnpm -r test"
+    "generate:certs": "node --experimental-strip-types certs/generate-certs.ts",
+    "test:certs": "node --experimental-strip-types --test certs/test/mtls.test.ts",
+    "test": "pnpm -r test && pnpm test:certs",
+    "demo": "node --experimental-strip-types apps/web-dashboard/src/server.ts",
+    "sim:game-theory": "python simulations/game-theory/nash_simulation.py"
   },
   "devDependencies": {
-    "@types/node": "^26.6.6"
+    "@types/node": "^26.6.6",
+    "typescript": "^7.0.2"
   }
 }

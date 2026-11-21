@@ -23,7 +23,7 @@ function canonicalStringify(value: unknown): string {
  * Computes the canonical SHA-256 hash of an event's data fields (excluding the hash field itself).
  */
 export function computeEventHash(
-  event: Omit<AuditEvent, 'hash'> & { hash?: string }
+  event: Omit<AuditEvent<any>, 'hash'> & { hash?: string }
 ): string {
   const canonicalPayload = canonicalStringify({
     action: event.action,

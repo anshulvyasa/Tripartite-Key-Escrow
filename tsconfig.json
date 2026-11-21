@@ -1,0 +1,31 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "types": ["node"],
+    "paths": {
+      "@trivault/crypto-core": ["./packages/crypto-core/src/index.ts"],
+      "@trivault/audit-log": ["./packages/audit-log/src/index.ts"],
+      "@trivault/certs": ["./certs/index.ts"],
+      "@trivault/service-provider": ["./services/service-provider/src/index.ts"],
+      "@trivault/mock-aadhaar": ["./services/mock-aadhaar/src/index.ts"],
+      "@trivault/escrow-cluster": ["./services/escrow-cluster/src/index.ts"],
+      "@trivault/client": ["./apps/client/src/index.ts"]
+    }
+  },
+  "include": [
+    "packages/*/src/**/*",
+    "packages/*/test/**/*",
+    "services/*/src/**/*",
+    "services/*/test/**/*",
+    "apps/*/src/**/*",
+    "apps/*/test/**/*",
+    "certs/**/*"
+  ]
+}

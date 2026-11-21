@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TriVault — Zero-Trust Tripartite Key Escrow Demonstration</title>
+  <link rel="stylesheet" href="dashboard.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
+    rel="stylesheet">
+</head>
+
+<body class="dark-theme">
+
+  <!-- ===================================================================== -->
+  <!-- EMERGENCY ALERT BANNER (Flashing Multi-Channel Alert & SIM-Swap Mitigation) -->
+  <!-- ===================================================================== -->
+  <div id="emergency-banner" class="emergency-banner hidden">
+    <div class="banner-content">
+      <div class="banner-icon-pulse">🚨</div>
+      <div class="banner-text">
+        <span class="banner-title">EMERGENCY: TIMELOCK RECOVERY WINDOW ACTIVE</span>
+        <span class="banner-desc" id="banner-desc">Target Vault: vault-demo-001 | Host: 198.51.100.44 | Waiting for
+          Timelock Window...</span>
+      </div>
+      <div class="banner-timer-box">
+        <span class="timer-label">TIME TO RELEASE</span>
+        <span class="timer-digits" id="banner-countdown">00:05</span>
+      </div>
+      <button id="btn-cancel-fraud" class="btn-cancel-fraud" onclick="cancelRecovery()">
+        <span>🛑 CANCEL FRAUDULENT REQUEST</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- ===================================================================== -->
+  <!-- TOP NAVIGATION BAR -->
+  <!-- ===================================================================== -->
+  <header class="topbar">
+    <div class="topbar-left">
+      <div class="brand">
+        <div class="brand-logo">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+            <polyline points="2 17 12 22 22 17"></polyline>
+            <polyline points="2 12 12 17 22 12"></polyline>
+          </svg>
+        </div>
+        <div class="brand-info">
+          <h1>TriVault <span class="badge badge-accent">Demonstration Dashboard</span></h1>
+          <p>Zero-Trust Tripartite Key Escrow Architecture (Evaluator Live Harness)</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="topbar-right">
+      <div class="system-status-pills">
+        <div class="status-pill" id="pill-sp-status">
+          <span class="status-dot online"></span>
+          <span>SP: <strong id="topbar-sp-text">ONLINE</strong></span>
+        </div>
+        <div class="status-pill" id="pill-escrow-status">
+          <span class="status-dot online"></span>
+          <span>Escrow: <strong id="topbar-escrow-text">3/3 NODES</strong></span>
+        </div>
+        <div class="status-pill" id="pill-audit-status">
+          <span class="status-dot online"></span>
+          <span>Audit: <strong id="topbar-audit-text">VERIFIED</strong></span>
+        </div>
+      </div>
+
+      <div class="topbar-actions">
+        <button class="btn btn-secondary btn-sm" onclick="quickSeedDemo()">
+          <span class="">⚡ Reset / Load Demo Vault</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- ===================================================================== -->
+  <!-- MAIN 4-PANEL GRID LAYOUT -->
+  <!-- ===================================================================== -->
+  <main class="dashboard-grid">
+
+    <!-- =================================================================== -->
+    <!-- PANEL 1: USER CLIENT & ANDROID DEVICE SIMULATOR (Local Browser State) -->
+    <!-- =================================================================== -->
+    <section class="panel panel-client" id="panel-1">
+      <div class="panel-header">
+        <div class="panel-title">
+          <span class="panel-icon cyan">📱</span>
+          <h2>Panel 1: User Client & Android Simulator</h2>
+        </div>
+        <div class="vault-mode-switch">
+          <span class="label">Vault Mode:</span>
+          <div class="segmented-control">
+            <button id="btn-mode-recoverable" class="active" onclick="setVaultMode('RECOVERABLE')">Recoverable
+              Mode</button>
+            <button id="btn-mode-strict" onclick="setVaultMode('STRICT')">Strict Mode</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel-body">
+        <!-- Hardware Security Hooks -->
+        <div class="sub-card">
+          <div class="sub-card-header">
+            <h3>Simulated Android Hardware Hooks</h3>
+            <span class="badge badge-outline">Keystore / StrongBox</span>
+          </div>
+          <div class="hardware-hooks-grid">
+            <label class="toggle-control">
+              <input type="checkbox" id="hook-biometric" checked onchange="updateHooks()">
+              <span class="toggle-slider"></span>
+              <span class="toggle-label">Biometric Fingerprint (Class 3 Strong)</span>
+            </label>
+            <label class="toggle-control">
+              <input type="checkbox" id="hook-device-id" checked onchange="updateHooks()">
+              <span class="toggle-slider"></span>
+              <span class="toggle-label">Registered Device ID (SEC-HW-8842)</span>
+            </label>
+            <label class="toggle-control">
+              <input type="checkbox" id="hook-new-device" onchange="updateHooks()">
+              <span class="toggle-slider"></span>
+              <span class="toggle-label">Lost Device (Simulate Algorithm 4 Total Loss)</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Local Key Inspector -->
+        <div class="sub-card">
+          <div class="sub-card-header">
+            <h3>Local Key Inspector</h3>
+            <span class="badge badge-cyan">Client-Only Memory</span>
+          </div>
+          <div class="keys-grid">
+            <div class="key-item">
+              <span class="key-name">Master Password (User Secret):</span>
+              <div class="key-val-pw-group">
+                <span class="key-value mono" id="client-password">••••••••••••</span>
+                <button type="button" class="btn-toggle-pw-small" onclick="toggleInspectorPassword(this)" title="Show/Hide Password">
+                  <span class="pw-eye-icon">👁️</span>
+                </button>
+              </div>
+            </div>
+            <div class="key-item">
+              <span class="key-name">Password Key (K_pw — Argon2id):</span>
+              <span class="key-value mono text-cyan" id="client-kpw">Generating...</span>
+            </div>
+            <div class="key-item">
+              <span class="key-name">Data Key (K_data — Encrypts Vault):</span>
+              <span class="key-value mono" id="client-kdata">Generating...</span>
+            </div>
+            <div class="key-item">
+              <span class="key-name">Recovery Key (K_rec — Disaster Recovery):</span>
+              <span class="key-value mono" id="client-krec">Generating...</span>
+            </div>
+            <div class="key-item">
+              <span class="key-name">User Share U (id: 1):</span>
+              <span class="key-value mono text-cyan" id="client-share-u">Generating...</span>
+            </div>
+            <div class="key-item">
+              <span class="key-name">Schnorr Identity (sk_rec / pk_rec):</span>
+              <div class="schnorr-display">
+                <span class="schnorr-sk" title="Private key stays strictly on device!">🔒 sk_rec: <span
+                    id="client-schnorr-sk">[Protected in Memory]</span></span>
+                <span class="schnorr-pk mono" id="client-schnorr-pk">pk_rec: Generating...</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Action Triggers -->
+        <div class="sub-card">
+          <div class="sub-card-header">
+            <h3>TriVault Workflow Triggers</h3>
+          </div>
+          <div class="workflow-buttons-grid">
+            <button class="btn btn-action" onclick="openSetupModal()">
+              <span class="btn-num">A1</span>
+              <div class="btn-text">
+                <strong>Algorithm 1: Setup Vault</strong>
+                <small>AES-256-GCM + Argon2id + Shamir (U, S, E)</small>
+              </div>
+            </button>
+
+            <button class="btn btn-action" onclick="openLoginModal()">
+              <span class="btn-num">A3</span>
+              <div class="btn-text">
+                <strong>Algorithm 3: Normal Login</strong>
+                <small>Password derivation via SP (Zero Escrow)</small>
+              </div>
+            </button>
+
+            <button class="btn btn-action" onclick="openForgotPasswordModal()">
+              <span class="btn-num">U+S</span>
+              <div class="btn-text">
+                <strong>Forgot Password (U + S)</strong>
+                <small>Local Share U + SP Share S recovery</small>
+              </div>
+            </button>
+
+            <button class="btn btn-action btn-algo2" onclick="triggerAlgo2()">
+              <span class="btn-num">A2</span>
+              <div class="btn-text">
+                <strong>Algorithm 2: Escrow Recovery (U + E)</strong>
+                <small>Schnorr ZK proof + Timelock + Key Rotation</small>
+              </div>
+            </button>
+
+            <button class="btn btn-action btn-algo4" onclick="triggerAlgo4()">
+              <span class="btn-num">A4</span>
+              <div class="btn-text">
+                <strong>Algorithm 4: Total Loss Recovery (S + E)</strong>
+                <small>Lost Device + Aadhaar OTP + Timelock + Device Provision</small>
+              </div>
+            </button>
+          </div>
+        </div>
+
+        <!-- Client Vault Contents & Decryption Controls -->
+        <div class="sub-card vault-items-card">
+          <div class="sub-card-header vault-items-header">
+            <div class="vault-header-title">
+              <h3>Client Vault Items (AES-256-GCM)</h3>
+              <span class="badge badge-danger" id="badge-vault-status">🔒 Vault Locked (Encrypted)</span>
+            </div>
+            <div class="vault-header-actions">
+              <button class="btn btn-outline btn-sm" onclick="openSetupModal()"
+                title="Initialize or customize vault secrets (Algorithm 1)">
+                <span class="btn-icon">➕</span>
+                <span class="btn-label">Manage Secrets</span>
+              </button>
+              <button class="btn btn-decrypt" id="btn-decrypt-vault" onclick="triggerManualDecrypt()"
+                title="Decrypt vault items using locally held Data Key (K_data)">
+                <span class="btn-icon">🔓</span>
+                <span class="btn-label">Decrypt Vault</span>
+              </button>
+              <button class="btn btn-lock" id="btn-lock-vault" onclick="triggerManualLock()"
+                title="Re-lock vault and mask plaintext secrets">
+                <span class="btn-icon">🔒</span>
+                <span class="btn-label">Lock Vault</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="vault-status-indicator" id="vault-status-indicator">
+            <span class="status-icon" id="vault-indicator-icon">🔒</span>
+            <span class="status-msg" id="vault-indicator-msg">Vault is currently encrypted. Apply Algorithm 3 (Login) or
+              Recovery to load K_data, then click <strong>Decrypt Vault</strong>.</span>
+          </div>
+
+          <div class="vault-items-container" id="vault-items-container">
+            <!-- Dynamically populated with encrypted or decrypted cards -->
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- =================================================================== -->
+    <!-- PANEL 2: SERVICE PROVIDER (SP) INSPECTOR -->
+    <!-- =================================================================== -->
+    <section class="panel panel-sp" id="panel-2">
+      <div class="panel-header">
+        <div class="panel-title">
+          <span class="panel-icon purple">🏢</span>
+          <h2>Panel 2: Service Provider (SP) Inspector</h2>
+        </div>
+        <div class="sp-controls">
+          <label class="toggle-control toggle-danger">
+            <input type="checkbox" id="toggle-sp-offline" onchange="toggleSpOffline()">
+            <span class="toggle-slider"></span>
+            <span class="toggle-label" id="label-sp-offline">SP Online</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="panel-body">
+        <div class="zk-proof-banner">
+          <div class="zk-icon">🛡️</div>
+          <div class="zk-text">
+            <strong>Zero-Knowledge Storage Boundary:</strong>
+            <p>The Service Provider strictly stores only encrypted ciphertext, the Argon2id salt, wrapped keys, and its
+              assigned Share S. It NEVER processes plaintext, passwords, or raw keys.</p>
+          </div>
+        </div>
+
+        <div class="sub-card">
+          <div class="sub-card-header">
+            <h3>Live SP Storage Record</h3>
+            <span class="badge badge-purple" id="sp-vault-id-badge">vault-demo-001</span>
+          </div>
+          <div class="sp-storage-fields">
+            <div class="sp-field">
+              <span class="sp-field-label">Vault Ciphertext (AES-256-GCM):</span>
+              <div class="code-box mono" id="sp-ciphertext">Loading...</div>
+            </div>
+            <div class="sp-field">
+              <span class="sp-field-label">Argon2id Salt:</span>
+              <div class="code-box mono" id="sp-salt">Loading...</div>
+            </div>
+            <div class="sp-field">
+              <span class="sp-field-label">Password-Wrapped Key (W_pw):</span>
+              <div class="code-box mono" id="sp-wpw">Loading...</div>
+            </div>
+            <div class="sp-field">
+              <span class="sp-field-label">Recovery-Wrapped Key (W_rec):</span>
+              <div class="code-box mono" id="sp-wrec">Loading...</div>
+            </div>
+            <div class="sp-field">
+              <span class="sp-field-label">Service Provider Share S (id: 2):</span>
+              <div class="code-box mono text-purple" id="sp-share-s">Loading...</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="sub-card">
+          <div class="sub-card-header">
+            <h3>SP Operational Audit Trail</h3>
+            <span class="badge badge-outline" id="sp-events-count">0 Events</span>
+          </div>
+          <div class="sp-audit-list" id="sp-audit-list">
+            <!-- Dynamically populated -->
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- =================================================================== -->
+    <!-- PANEL 3: ESCROW CLUSTER (N1, N2, N3) & POLICY ENGINE -->
+    <!-- =================================================================== -->
+    <section class="panel panel-escrow" id="panel-3">
+      <div class="panel-header">
+        <div class="panel-title">
+          <span class="panel-icon emerald">🏛️</span>
+          <h2>Panel 3: Escrow Cluster & Policy Engine</h2>
+        </div>
+        <div class="threshold-badge">
+          <span class="badge badge-emerald" id="escrow-threshold-badge">2-of-3 Threshold Active</span>
+        </div>
+      </div>
+
+      <div class="panel-body">
+        <!-- Node Cards (N1, N2, N3) with toggle controls -->
+        <div class="nodes-grid">
+          <div class="node-card" id="card-node-n1">
+            <div class="node-card-header">
+              <div class="node-title">
+                <span class="status-dot online" id="dot-node-n1"></span>
+                <strong>Escrow Node 1</strong>
+              </div>
+              <label class="toggle-control sm">
+                <input type="checkbox" id="toggle-node-n1" checked onchange="toggleNode('N1')">
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+            <div class="node-body">
+              <div class="node-stat">
+                <span class="stat-label">Sub-Share:</span>
+                <span class="stat-val mono" id="val-node-n1">N1 (Share 1)</span>
+              </div>
+              <div class="node-stat">
+                <span class="stat-label">mTLS Port:</span>
+                <span class="stat-val">22141 (CN=escrow-node-1)</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="node-card" id="card-node-n2">
+            <div class="node-card-header">
+              <div class="node-title">
+                <span class="status-dot online" id="dot-node-n2"></span>
+                <strong>Escrow Node 2</strong>
+              </div>
+              <label class="toggle-control sm">
+                <input type="checkbox" id="toggle-node-n2" checked onchange="toggleNode('N2')">
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+            <div class="node-body">
+              <div class="node-stat">
+                <span class="stat-label">Sub-Share:</span>
+                <span class="stat-val mono" id="val-node-n2">N2 (Share 2)</span>
+              </div>
+              <div class="node-stat">
+                <span class="stat-label">mTLS Port:</span>
+                <span class="stat-val">22142 (CN=escrow-node-2)</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="node-card" id="card-node-n3">
+            <div class="node-card-header">
+              <div class="node-title">
+                <span class="status-dot online" id="dot-node-n3"></span>
+                <strong>Escrow Node 3</strong>
+              </div>
+              <label class="toggle-control sm">
+                <input type="checkbox" id="toggle-node-n3" checked onchange="toggleNode('N3')">
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+            <div class="node-body">
+              <div class="node-stat">
+                <span class="stat-label">Sub-Share:</span>
+                <span class="stat-val mono" id="val-node-n3">N3 (Share 3)</span>
+              </div>
+              <div class="node-stat">
+                <span class="stat-label">mTLS Port:</span>
+                <span class="stat-val">22143 (CN=escrow-node-3)</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Policy Engine Inspector (WHAT / WHEN / HOW) -->
+        <div class="sub-card">
+          <div class="sub-card-header">
+            <h3>Policy Engine Inspector (WHAT / WHEN / HOW)</h3>
+            <span class="badge badge-accent">Multi-Factor Gateway</span>
+          </div>
+
+          <div class="policy-factors-grid">
+            <div class="factor-item" id="factor-what">
+              <div class="factor-header">
+                <strong>1. WHAT</strong>
+                <span class="badge badge-emerald" id="badge-factor-what">Vault Registered</span>
+              </div>
+              <p>Target vault identity confirmed in Escrow Cluster record.</p>
+            </div>
+
+            <div class="factor-item" id="factor-schnorr">
+              <div class="factor-header">
+                <strong>2. HOW (Factor 1)</strong>
+                <span class="badge badge-emerald" id="badge-factor-schnorr">Schnorr ZK Verified</span>
+              </div>
+              <p>BIP-340 challenge-response signature verified with pk_rec.</p>
+            </div>
+
+            <div class="factor-item" id="factor-aadhaar">
+              <div class="factor-header">
+                <strong>3. HOW (Factor 2)</strong>
+                <span class="badge badge-emerald" id="badge-factor-aadhaar">Aadhaar OTP Verified</span>
+              </div>
+              <p>Simulated national identity OTP with replay protection.</p>
+            </div>
+
+            <div class="factor-item" id="factor-when">
+              <div class="factor-header">
+                <strong>4. WHEN</strong>
+                <span class="badge badge-outline" id="badge-factor-when">No Active Timelock</span>
+              </div>
+              <p>Delay timer gating share release (user can abort via alert).</p>
+            </div>
+          </div>
+
+          <!-- Policy Verdict Box -->
+          <div class="policy-verdict-box" id="policy-verdict-box">
+            <span class="verdict-label">EVALUATION VERDICT:</span>
+            <span class="verdict-pill verdict-allow" id="verdict-pill">ALLOW — Ready for Access</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- =================================================================== -->
+    <!-- PANEL 4: TAMPER-EVIDENT AUDIT LOG & MERKLE TREE VERIFIER -->
+    <!-- =================================================================== -->
+    <section class="panel panel-audit" id="panel-4">
+      <div class="panel-header">
+        <div class="panel-title">
+          <span class="panel-icon gold">📜</span>
+          <h2>Panel 4: Tamper-Evident Audit Log & Merkle Verifier</h2>
+        </div>
+        <div class="audit-actions">
+          <button id="btn-tamper-event3" class="btn btn-danger btn-sm" onclick="tamperEvent3()">
+            <span>🚨 Tamper with Event 3</span>
+          </button>
+          <button id="btn-restore-event3" class="btn btn-secondary btn-sm hidden" onclick="restoreTamper()">
+            <span>🔄 Restore Original Log</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="panel-body">
+        <!-- Hash Chain Status Bar -->
+        <div class="audit-status-banner" id="audit-status-banner">
+          <div class="status-indicator-box">
+            <span class="status-icon" id="audit-banner-icon">✅</span>
+            <div class="status-text">
+              <strong id="audit-banner-title">Append-Only Hash Chain: Cryptographically Verified</strong>
+              <p id="audit-banner-desc">Every event is immutably linked via SHA-256 hash chains. Signed checkpoints
+                verified.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Merkle Tree Explorer -->
+        <div class="sub-card">
+          <div class="sub-card-header">
+            <h3>Merkle Tree Explorer & Inclusion Proofs</h3>
+            <span class="badge badge-gold" id="badge-merkle-root">Root: Loading...</span>
+          </div>
+          <p class="merkle-instruction">Click any event below to generate its Merkle inclusion proof path ({L_i,
+            Sibling, Root}):</p>
+          <div class="merkle-leaves-row" id="merkle-leaves-row">
+            <!-- Dynamically populated leaves -->
+          </div>
+          <div class="merkle-proof-display hidden" id="merkle-proof-display">
+            <!-- Dynamically populated proof path -->
+          </div>
+        </div>
+
+        <!-- Hash Chain Event Timeline -->
+        <div class="sub-card">
+          <div class="sub-card-header">
+            <h3>Immutable Event Blocks</h3>
+            <span class="badge badge-outline" id="chain-length-badge">0 Blocks</span>
+          </div>
+          <div class="hash-chain-timeline" id="hash-chain-timeline">
+            <!-- Dynamically populated event cards -->
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ===================================================================== -->
+  <!-- MODALS -->
+  <!-- ===================================================================== -->
+
+  <!-- Modal: Algorithm 1 Setup -->
+  <div class="modal-overlay hidden" id="modal-setup">
+    <div class="modal-card modal-card-wide">
+      <div class="modal-header">
+        <h3>Algorithm 1: Vault Setup (Account Initialization)</h3>
+        <button class="modal-close" onclick="closeModal('modal-setup')">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-row-2col">
+          <div class="form-group">
+            <label>Vault ID:</label>
+            <input type="text" id="setup-vault-id" value="vault-demo-001" class="input-text">
+          </div>
+          <div class="form-group">
+            <label>Recovery Mode:</label>
+            <select id="setup-recovery-mode" class="input-select">
+              <option value="RECOVERABLE">Recoverable Mode (Allows S+E with delay)</option>
+              <option value="STRICT">Strict Mode (Disables S+E Total Loss)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Master Password (derives K_pw via Argon2id):</label>
+          <div class="password-input-wrapper">
+            <input type="password" id="setup-password" value="MasterPassword#2026" class="input-text"
+              placeholder="Enter master password">
+            <button type="button" class="btn-toggle-pw" onclick="togglePasswordVisibility('setup-password', this)"
+              title="Show/Hide Password">
+              <span class="pw-eye-icon">👁️</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Dynamic Key-Value Secrets Section -->
+        <div class="setup-secrets-container">
+          <div class="setup-secrets-header">
+            <label>Vault Secrets (Key-Value Entries):</label>
+            <div style="display: flex; gap: 8px;">
+              <button type="button" class="btn btn-sm btn-outline" onclick="clearAllSecretRows()" title="Clear all rows to enter new secrets">
+                <span>🗑️ Clear All</span>
+              </button>
+              <button type="button" class="btn btn-sm btn-add-row" onclick="addSecretRow('', '', true)">
+                <span>➕ Add Secret</span>
+              </button>
+            </div>
+          </div>
+          <div id="setup-secrets-list" class="setup-secrets-list">
+            <!-- Dynamically populated from previous state -->
+          </div>
+        </div>
+
+        <p class="modal-hint">Setting up the vault generates fresh local $K_{\text{data}}$ and $K_{\text{rec}}$,
+          encrypts all key-value secrets, wraps keys under your chosen password, splits $K_{\text{rec}}$ 2-of-3 across
+          $(U, S, E)$, and registers zero-knowledge artifacts with SP and Escrow.</p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal('modal-setup')">Cancel</button>
+        <button class="btn btn-primary" onclick="executeSetup()">Initialize Vault</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Algorithm 3 Login -->
+  <div class="modal-overlay hidden" id="modal-login">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Algorithm 3: Normal Daily Login</h3>
+        <button class="modal-close" onclick="closeModal('modal-login')">✕</button>
+      </div>
+      <div class="modal-body">
+        <label>Master Password:</label>
+        <div class="password-input-wrapper">
+          <input type="password" id="login-password" value="MasterPassword#2026" class="input-text"
+            placeholder="Enter master password">
+          <button type="button" class="btn-toggle-pw" onclick="togglePasswordVisibility('login-password', this)"
+            title="Show/Hide Password">
+            <span class="pw-eye-icon">👁️</span>
+          </button>
+        </div>
+
+        <div class="quick-try-buttons">
+          <button type="button" class="btn btn-sm btn-outline" onclick="fillActivePassword()">Fill Correct
+            Password</button>
+          <button type="button" class="btn btn-sm btn-danger" onclick="setLoginPw('WrongPasswordAttackerGuess')">Test
+            Wrong Password (Tag Failure)</button>
+        </div>
+
+        <p class="modal-hint">Normal login fetches $W_{\text{pw}}$ and salt from SP, re-derives $K_{\text{pw}}$ via
+          Argon2id, and unwraps $K_{\text{data}}$ locally. Escrow is NOT contacted.</p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal('modal-login')">Cancel</button>
+        <button class="btn btn-primary" onclick="executeLogin()">Unlock Vault</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Forgot Password -->
+  <div class="modal-overlay hidden" id="modal-forgot-pw">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Forgot Password (U + S)</h3>
+        <button class="modal-close" onclick="closeModal('modal-forgot-pw')">✕</button>
+      </div>
+      <div class="modal-body">
+        <p>Uses your local <strong>User Share U (id: 1)</strong> combined with <strong>SP Share S (id: 2)</strong> to
+          reconstruct $K_{\text{rec}}$, unwrap $K_{\text{data}}$, and configure a new password.</p>
+        <label>Enter New Master Password:</label>
+        <div class="password-input-wrapper">
+          <input type="password" id="forgot-new-password" value="NewMasterPassword#2027!" class="input-text"
+            placeholder="Enter new password">
+          <button type="button" class="btn-toggle-pw" onclick="togglePasswordVisibility('forgot-new-password', this)"
+            title="Show/Hide Password">
+            <span class="pw-eye-icon">👁️</span>
+          </button>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal('modal-forgot-pw')">Cancel</button>
+        <button class="btn btn-primary" onclick="executeForgotPassword()">Reset Password</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Toast Notification -->
+  <div id="toast" class="toast hidden">
+    <span id="toast-message">Message</span>
+  </div>
+
+  <script src="dashboard.js"></script>
+</body>
+
+</html>
