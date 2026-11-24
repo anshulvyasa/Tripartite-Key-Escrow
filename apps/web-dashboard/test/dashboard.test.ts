@@ -299,6 +299,67 @@ describe('@trivault/web-dashboard - Live Demonstration Server & API Suite', () =
     assert.strictEqual(decryptRes.data.decryptedItems.length, 3);
   });
 
+  it('preserves an explicitly empty vault and can add a secret after clearing it', async () => {
+    const cleared = await request('/api/vault/setup', { method: 'POST' }, {
+      vaultId: 'vault-empty',
+      password: '  Exact Password  ',
+      items: [],
+    });
+    assert.strictEqual(cleared.status, 200);
+    assert.strictEqual(cleared.data.itemCount, 0);
+    const emptyState = await request('/api/state');
+    assert.strictEqual(emptyState.data.client.isVaultUnlocked, true);
+    assert.deepEqual(emptyState.data.client.activeItems, []);
+    assert.deepEqual(emptyState.data.client.encryptedItems, []);
+    await request('/api/vault/lock', { method: 'POST' }, { purgeKey: true });
+    const login = await request('/api/vault/login', { method: 'POST' }, { password: '  Exact Password  ' });
+    assert.strictEqual(login.status, 200);
+    const decrypted = await request('/api/vault/decrypt', { method: 'POST' });
+    assert.deepEqual(decrypted.data.decryptedItems, []);
+
+    const items = [{ id: '1', title: 'New secret', category: 'Personal', secret: '  exact secret  ' }];
+    const added = await request('/api/vault/setup', { method: 'POST' }, {
+      vaultId: 'vault-empty', password: '  Exact Password  ', items,
+    });
+    assert.strictEqual(added.status, 200);
+    await request('/api/vault/lock', { method: 'POST' });
+    const restored = await request('/api/vault/decrypt', { method: 'POST' });
+    assert.deepEqual(restored.data.decryptedItems, items);
+  });
+
+  it('rejects stale setup forms so a later save cannot delete newly added secrets', async () => {
+    const original = (await request('/api/state')).data;
+    const originalItems = original.client.activeItems;
+    const expectedVaultIv = original.serviceProvider.record.fullCiphertext.iv;
+    const items = [...originalItems, { id: 'new-secret', title: 'Added in another tab', category: 'Personal', secret: 'keep-me' }];
+    const saved = await request('/api/vault/setup', { method: 'POST' }, {
+      vaultId: original.client.vaultId, password: original.client.password, items, expectedVaultIv,
+    });
+    assert.strictEqual(saved.status, 200);
+    const stale = await request('/api/vault/setup', { method: 'POST' }, {
+      vaultId: original.client.vaultId, password: original.client.password, items: originalItems, expectedVaultIv,
+    });
+    assert.strictEqual(stale.status, 409);
+    const overwrite = await request('/api/vault/setup', { method: 'POST' }, {
+      vaultId: original.client.vaultId, password: original.client.password, items: [], expectedVaultIv: null,
+    });
+    assert.strictEqual(overwrite.status, 409);
+    const decrypted = await request('/api/vault/decrypt', { method: 'POST' });
+    assert.deepEqual(decrypted.data.decryptedItems, items);
+  });
+
+  it('rejects invalid setup input before changing the active vault', async () => {
+    const before = (await request('/api/state')).data.client;
+    for (const invalid of [{ password: '' }, { items: {} }, { items: [null] }, { items: [{ secret: 42 }] }]) {
+      const result = await request('/api/vault/setup', { method: 'POST' }, {
+        vaultId: 'invalid-vault', password: 'AnotherPassword', ...invalid,
+      });
+      assert.strictEqual(result.status, 400);
+      const after = (await request('/api/state')).data.client;
+      assert.deepEqual(after, before);
+    }
+  });
+
   it('PROVE: Strict Mode enforcement strictly rejects Algorithm 4 (S + E)', async () => {
     // 1. Set Vault Mode to STRICT
     await request('/api/client/vault-mode', { method: 'POST' }, { recoveryMode: 'STRICT' });
@@ -339,6 +400,80 @@ describe('@trivault/web-dashboard - Live Demonstration Server & API Suite', () =
     assert.ok(proofRes.data.leafHash);
     assert.ok(proofRes.data.root);
     assert.strictEqual(proofRes.data.isValid, true);
+  });
+
+  it('simulates key loss and recovers the original vault through Algorithm 2', async () => {
+    const items = [{ id: 'key-loss-secret', title: 'Recovery test', category: 'Personal', secret: 'recover-this-exact-value' }];
+    await request('/api/vault/setup', { method: 'POST' }, {
+      vaultId: 'vault-key-loss', password: 'KeyLossPassword', items,
+    });
+    const before = (await request('/api/state')).data;
+    const lost = await request('/api/vault/lock', { method: 'POST' }, { purgeKey: true });
+    assert.strictEqual(lost.status, 200);
+    assert.strictEqual(lost.data.keyRetained, false);
+    const missing = (await request('/api/state')).data;
+    assert.strictEqual(missing.client.isVaultUnlocked, false);
+    for (const key of ['dataKeyHex', 'passwordKeyHex', 'recoveryKeyHex', 'password']) {
+      assert.strictEqual(missing.client[key], '');
+    }
+    assert.deepEqual(missing.client.decryptedItems, []);
+    assert.deepEqual(missing.client.activeItems, []);
+    assert.deepEqual(server.state.currentVaultItems, []);
+    assert.deepEqual(missing.client.userShare, before.client.userShare);
+    assert.deepEqual(missing.client.schnorrKeys, before.client.schnorrKeys);
+    assert.deepEqual(missing.client.cachedCiphertext, before.client.cachedCiphertext);
+    assert.deepEqual(missing.serviceProvider.record, before.serviceProvider.record);
+    assert.strictEqual((await request('/api/vault/decrypt', { method: 'POST' })).status, 400);
+
+    // Repeating the action and ordinary locking cannot restore the missing key.
+    await request('/api/vault/lock', { method: 'POST' }, { purgeKey: true });
+    await request('/api/vault/lock', { method: 'POST' });
+    assert.strictEqual((await request('/api/state')).data.client.dataKeyHex, '');
+    assert.strictEqual((await request('/api/vault/quick-seed', { method: 'POST' })).status, 409);
+    const replace = await request('/api/vault/setup', { method: 'POST' }, {
+      vaultId: 'vault-key-loss', password: 'Replacement', items: [],
+    });
+    assert.strictEqual(replace.status, 409);
+    const wrongPassword = await request('/api/vault/login', { method: 'POST' }, { password: 'WrongPassword' });
+    assert.strictEqual(wrongPassword.status, 401);
+    assert.strictEqual((await request('/api/state')).data.client.dataKeyHex, '');
+
+    const recovery = await request('/api/vault/recover-algo2', { method: 'POST' }, { delayMs: 60 });
+    assert.strictEqual(recovery.status, 200);
+    assert.strictEqual((await request('/api/state')).data.client.dataKeyHex, '');
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    const completed = await request('/api/vault/complete-recovery', { method: 'POST' });
+    assert.strictEqual(completed.status, 200);
+    assert.strictEqual(completed.data.dataKeyHex, before.client.dataKeyHex);
+    assert.deepEqual((await request('/api/vault/decrypt', { method: 'POST' })).data.decryptedItems, items);
+    const recovered = (await request('/api/state')).data;
+    assert.deepEqual(recovered.client.activeItems, items);
+    assert.deepEqual(server.state.currentVaultItems, items);
+  });
+
+  it('restores access through login, password reset and Algorithm 4 after key loss', async () => {
+    const before = (await request('/api/state')).data.client;
+    await request('/api/vault/lock', { method: 'POST' }, { purgeKey: true });
+    const login = await request('/api/vault/login', { method: 'POST' }, { password: 'KeyLossPassword', autoDecrypt: true });
+    assert.strictEqual(login.status, 200);
+    assert.deepEqual(login.data.decryptedItems, before.activeItems);
+    assert.deepEqual((await request('/api/state')).data.client.activeItems, before.activeItems);
+
+    await request('/api/vault/lock', { method: 'POST' }, { purgeKey: true });
+    const reset = await request('/api/vault/forgot-password', { method: 'POST' }, { newPassword: 'ResetAfterKeyLoss' });
+    assert.strictEqual(reset.status, 200);
+    assert.strictEqual(reset.data.dataKeyHex, before.dataKeyHex);
+    assert.deepEqual((await request('/api/state')).data.client.activeItems, before.activeItems);
+
+    await request('/api/vault/lock', { method: 'POST' }, { purgeKey: true });
+    const recovery = await request('/api/vault/recover-algo4', { method: 'POST' }, { delayMs: 20 });
+    assert.strictEqual(recovery.status, 200);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    const completed = await request('/api/vault/complete-recovery', { method: 'POST' });
+    assert.strictEqual(completed.status, 200);
+    assert.strictEqual(completed.data.dataKeyHex, before.dataKeyHex);
+    assert.deepEqual((await request('/api/vault/decrypt', { method: 'POST' })).data.decryptedItems, before.activeItems);
+    assert.deepEqual((await request('/api/state')).data.client.activeItems, before.activeItems);
   });
 
   it('PROVE: Static frontend files (index.html, dashboard.css, dashboard.js) are served properly', async () => {

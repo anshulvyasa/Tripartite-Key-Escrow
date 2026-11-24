@@ -7,6 +7,7 @@ let state = null;
 let selectedMerkleIndex = 0;
 let pollTimer = null;
 let countdownInterval = null;
+let setupVaultSnapshot = null;
 
 // Initialize on DOM Ready
 document.addEventListener('DOMContentLoaded', () => {
@@ -21,10 +22,21 @@ async function fetchState() {
   try {
     const res = await fetch('/api/state');
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    state = await res.json();
+    const nextState = await res.json();
+    if (!nextState.client.dataKeyHex && state?.client?.dataKeyHex !== '') {
+      setupVaultSnapshot = null;
+      document.getElementById('setup-secrets-list').innerHTML = '';
+      for (const id of ['setup-password', 'login-password', 'forgot-new-password']) {
+        document.getElementById(id).value = '';
+      }
+      closeModal('modal-setup');
+    }
+    state = nextState;
     renderAll();
+    return state;
   } catch (err) {
     console.warn('Dashboard fetchState error:', err);
+    return null;
   }
 }
 
@@ -135,6 +147,8 @@ function updateBannerCountdown(expiresAt) {
 function renderPanel1Client() {
   if (!state?.client) return;
   const client = state.client;
+  const loseKeyButton = document.getElementById('btn-lose-key');
+  if (loseKeyButton) loseKeyButton.disabled = !client.dataKeyHex;
 
   // Mode Buttons
   const btnRec = document.getElementById('btn-mode-recoverable');
@@ -157,9 +171,9 @@ function renderPanel1Client() {
   const clientPwEl = document.getElementById('client-password');
   if (clientPwEl) {
     if (clientPwEl.dataset.revealed === 'true') {
-      clientPwEl.innerText = client.password || '[Not Set]';
+      clientPwEl.innerText = client.password || '[Not Cached]';
     } else {
-      clientPwEl.innerText = client.password ? '••••••••••••' : '[Not Set]';
+      clientPwEl.innerText = client.password ? '••••••••••••' : '[Not Cached]';
     }
   }
 
@@ -177,7 +191,7 @@ function renderPanel1Client() {
 
   document.getElementById('client-kdata').innerText = client.dataKeyHex
     ? `${client.dataKeyHex.slice(0, 16)}...${client.dataKeyHex.slice(-8)}`
-    : '[Unloaded]';
+    : '[Missing — recover or log in]';
   document.getElementById('client-krec').innerText = client.recoveryKeyHex
     ? `${client.recoveryKeyHex.slice(0, 16)}...${client.recoveryKeyHex.slice(-8)}`
     : '[Unloaded]';
@@ -210,7 +224,7 @@ function renderPanel1Client() {
   const indicatorIcon = document.getElementById('vault-indicator-icon');
   const indicatorMsg = document.getElementById('vault-indicator-msg');
 
-  if (client.isVaultUnlocked && client.decryptedItems && client.decryptedItems.length > 0) {
+  if (client.isVaultUnlocked && Array.isArray(client.decryptedItems)) {
     // UNLOCKED STATE
     if (badgeVaultStatus) {
       badgeVaultStatus.innerText = '🔓 Vault Unlocked';
@@ -252,11 +266,11 @@ function renderPanel1Client() {
         </div>
       `
       )
-      .join('');
+      .join('') || '<p class="text-dim">No secrets yet. Use Manage Secrets to add one.</p>';
   } else {
     // LOCKED / ENCRYPTED STATE
     if (badgeVaultStatus) {
-      badgeVaultStatus.innerText = '🔒 Vault Locked (Encrypted)';
+      badgeVaultStatus.innerText = client.dataKeyHex ? '🔒 Vault Locked (Encrypted)' : '🔒 Vault Locked — Key Missing';
       badgeVaultStatus.className = 'badge badge-danger';
     }
 
@@ -283,18 +297,11 @@ function renderPanel1Client() {
       if (btnDecrypt) btnDecrypt.classList.remove('ready-pulse');
       if (indicatorIcon) indicatorIcon.innerText = '🔒';
       if (indicatorMsg) {
-        indicatorMsg.innerHTML = 'Vault is currently encrypted. Authenticate with <strong>Algorithm 3 (Login)</strong> or run Recovery to unwrap K_data, then click <strong>Decrypt Vault</strong>.';
+        indicatorMsg.innerHTML = '<strong>K_data is missing from client memory.</strong> Run <strong>Algorithm 2 (U + E)</strong>, wait for recovery to complete, then click <strong>Decrypt Vault</strong>. You can also enter your password using <strong>Algorithm 3 (Login)</strong>.';
       }
     }
 
-    const encItems = client.encryptedItems && client.encryptedItems.length > 0
-      ? client.encryptedItems
-      : [
-        { title: 'Chase Sapphire Banking PIN', category: 'Finance', ciphertextPreview: 'AES-GCM::9f8a2b1c4e7d5a08...::tag=3e8b4f1a' },
-        { title: 'BTC Cold Storage Mnemonic', category: 'Crypto', ciphertextPreview: 'AES-GCM::5c2e1b4a8d7f0e93...::tag=7a1d5c2e' },
-        { title: 'AWS Production Root Key', category: 'Infrastructure', ciphertextPreview: 'AES-GCM::3b8d7a1e5f0c2e94...::tag=9f0e1b4a' },
-        { title: 'Bastion SSH Private Key', category: 'DevOps', ciphertextPreview: 'AES-GCM::1a4e7d5b8c2f0e91...::tag=2b4f7a1d' },
-      ];
+    const encItems = client.encryptedItems || [];
 
     itemsContainer.innerHTML = encItems
       .map(
@@ -634,18 +641,24 @@ function togglePasswordVisibility(target, btnEl) {
 
 // Fill current active password into login input
 function fillActivePassword() {
-  const activePw = (state?.client?.password) || 'MasterPassword#2026';
+  const activePw = state?.client?.password;
+  if (!activePw) {
+    showToast('The cached password was cleared. Enter your password or use recovery.', true);
+    return;
+  }
   setLoginPw(activePw);
   showToast(`Filled current password: ${activePw.slice(0, 4)}••••`);
 }
 
 // Dynamic Key-Value Secret Rows in Setup Modal
-function addSecretRow(key = '', val = '', shouldFocus = true) {
+function addSecretRow(key = '', val = '', shouldFocus = true, item = null) {
   const container = document.getElementById('setup-secrets-list');
   if (!container) return;
 
   const row = document.createElement('div');
   row.className = 'secret-kv-row';
+  row.dataset.itemId = item?.id || `item-${crypto.getRandomValues(new Uint32Array(4)).join('-')}`;
+  row.dataset.category = item?.category || '';
   row.innerHTML = `
     <input type="text" class="input-text kv-key" placeholder="Key / Label (e.g. Bank PIN, API Key)" value="${escapeHtml(key)}">
     <div class="password-input-wrapper kv-val-wrapper">
@@ -691,23 +704,39 @@ function clearAllSecretRows() {
 }
 
 // Algorithm 1 Setup Modal with state preservation
-function openSetupModal() {
+async function openSetupModal() {
   const modal = document.getElementById('modal-setup');
-  if (!modal) return;
+  if (!modal || !modal.classList.contains('hidden')) return;
+
+  const currentState = await fetchState();
+  if (!currentState?.client || !currentState.serviceProvider?.record) {
+    showToast('Could not load the current vault. Try opening Manage Secrets again.', true);
+    return;
+  }
+  if (!currentState.client.dataKeyHex) {
+    showToast('Recover the data key or log in before editing vault secrets.', true);
+    return;
+  }
+  // Another click may have opened the editor while this request was pending.
+  if (!modal.classList.contains('hidden')) return;
+  setupVaultSnapshot = {
+    vaultId: currentState.client.vaultId,
+    iv: currentState.serviceProvider.record.fullCiphertext.iv,
+  };
 
   // Preserve previous state from client
-  if (state?.client) {
-    if (state.client.vaultId) {
+  if (currentState.client) {
+    if (currentState.client.vaultId) {
       const vEl = document.getElementById('setup-vault-id');
-      if (vEl) vEl.value = state.client.vaultId;
+      if (vEl) vEl.value = currentState.client.vaultId;
     }
-    if (state.client.password) {
+    if (currentState.client.password) {
       const pEl = document.getElementById('setup-password');
-      if (pEl) pEl.value = state.client.password;
+      if (pEl) pEl.value = currentState.client.password;
     }
-    if (state.client.recoveryMode) {
+    if (currentState.client.recoveryMode) {
       const mEl = document.getElementById('setup-recovery-mode');
-      if (mEl) mEl.value = state.client.recoveryMode;
+      if (mEl) mEl.value = currentState.client.recoveryMode;
     }
   }
 
@@ -715,14 +744,13 @@ function openSetupModal() {
   const container = document.getElementById('setup-secrets-list');
   if (container) {
     container.innerHTML = '';
-    const activeItems = (state?.client && (state.client.activeItems || state.client.decryptedItems)) || [];
+    const activeItems = currentState.client.activeItems || currentState.client.decryptedItems || [];
     if (activeItems.length > 0) {
       activeItems.forEach((item) => {
-        addSecretRow(item.title, item.secret || '', false);
+        addSecretRow(item.title, item.secret || '', false, item);
       });
     } else {
-      addSecretRow('Chase Sapphire Banking PIN', '8492', false);
-      addSecretRow('BTC Cold Storage Mnemonic', 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about', false);
+      addSecretRow('', '', false);
     }
   }
 
@@ -731,15 +759,21 @@ function openSetupModal() {
 
 async function executeSetup() {
   const vaultId = (document.getElementById('setup-vault-id')?.value || '').trim() || 'vault-demo-001';
-  const password = (document.getElementById('setup-password')?.value || '').trim() || 'MasterPassword#2026';
+  const password = document.getElementById('setup-password')?.value || '';
   const recoveryMode = document.getElementById('setup-recovery-mode')?.value || 'RECOVERABLE';
+
+  if (!password) {
+    showToast('Enter a master password before initializing the vault.', true);
+    document.getElementById('setup-password')?.focus();
+    return;
+  }
 
   // Read all dynamic key-value rows
   const rows = document.querySelectorAll('#setup-secrets-list .secret-kv-row');
   const items = [];
   rows.forEach((row, idx) => {
     const key = (row.querySelector('.kv-key')?.value || '').trim();
-    const val = (row.querySelector('.kv-val')?.value || '').trim();
+    const val = row.querySelector('.kv-val')?.value || '';
     if (key || val) {
       let category = 'Personal';
       const lower = key.toLowerCase();
@@ -752,9 +786,9 @@ async function executeSetup() {
       }
 
       items.push({
-        id: `item-${idx + 1}`,
+        id: row.dataset.itemId,
         title: key || `Secret #${idx + 1}`,
-        category,
+        category: row.dataset.category || category,
         secret: val || '',
       });
     }
@@ -768,7 +802,8 @@ async function executeSetup() {
         vaultId,
         password,
         recoveryMode,
-        items: items.length > 0 ? items : undefined,
+        items,
+        expectedVaultIv: vaultId === setupVaultSnapshot?.vaultId ? setupVaultSnapshot.iv : null,
       }),
     });
     if (!res.ok) {
@@ -792,7 +827,7 @@ function toggleInspectorPassword(btn) {
   pwEl.dataset.revealed = newRevealed ? 'true' : 'false';
   const eyeSpan = btn?.querySelector?.('.pw-eye-icon') || btn;
   if (newRevealed) {
-    pwEl.innerText = (state?.client?.password) || 'MasterPassword#2026';
+    pwEl.innerText = state?.client?.password || '[Not Cached]';
     if (eyeSpan?.innerText) eyeSpan.innerText = '🙈';
     btn?.setAttribute?.('title', 'Hide Password');
   } else {
@@ -827,8 +862,10 @@ async function triggerManualLock(purgeKey = false) {
     const json = await res.json();
     if (!res.ok) throw new Error(json.error);
 
-    showToast('🔒 Vault Locked! Secrets masked in encrypted state.');
-    fetchState();
+    await fetchState();
+    showToast(purgeKey
+      ? 'Key loss simulated. Run Algorithm 2 to recover K_data, or enter your password using Algorithm 3.'
+      : '🔒 Vault Locked! Secrets masked in encrypted state.');
   } catch (err) {
     showToast(`Lock error: ${err.message}`, true);
   }
@@ -836,7 +873,7 @@ async function triggerManualLock(purgeKey = false) {
 
 // Algorithm 3 Login
 function openLoginModal() {
-  const activePw = (state?.client?.password) || 'MasterPassword#2026';
+  const activePw = state?.client?.password || '';
   const loginInput = document.getElementById('login-password');
   if (loginInput) {
     loginInput.value = activePw;
@@ -1026,7 +1063,9 @@ async function selectMerkleLeaf(index) {
 // Quick Seed Demo
 async function quickSeedDemo() {
   try {
-    await fetch('/api/vault/quick-seed', { method: 'POST' });
+    const res = await fetch('/api/vault/quick-seed', { method: 'POST' });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error);
     showToast('Demo Vault Loaded with Banking PIN, Crypto Mnemonic, and SSH Keys!');
     fetchState();
   } catch (err) {

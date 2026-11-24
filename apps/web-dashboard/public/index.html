@@ -134,7 +134,10 @@
         <div class="sub-card">
           <div class="sub-card-header">
             <h3>Local Key Inspector</h3>
-            <span class="badge badge-cyan">Client-Only Memory</span>
+            <button type="button" class="btn btn-danger btn-sm" id="btn-lose-key" onclick="triggerManualLock(true)"
+              title="Delete loaded encryption keys, cached password and plaintext to simulate key loss">
+              Simulate Key Loss
+            </button>
           </div>
           <div class="keys-grid">
             <div class="key-item">

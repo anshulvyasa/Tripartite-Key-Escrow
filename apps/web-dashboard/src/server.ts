@@ -141,7 +141,7 @@ export class DashboardState {
     const password = customPassword || this.clientLocalState?.password || 'MasterPassword#2026';
     const recoveryMode = customMode || this.clientLocalState?.recoveryMode || 'RECOVERABLE';
 
-    if (customItems && customItems.length > 0) {
+    if (customItems !== undefined) {
       this.currentVaultItems = customItems;
     }
 
@@ -418,13 +418,38 @@ export class DashboardServer {
       // 6. POST /api/vault/setup (Algorithm 1)
       // -----------------------------------------------------------------------
       if (pathname === '/api/vault/setup' && method === 'POST') {
-        const { vaultId, password, items, recoveryMode } = await readJson();
+        const { vaultId, password, items, recoveryMode, expectedVaultIv } = await readJson();
+        if (
+          (vaultId !== undefined && (typeof vaultId !== 'string' || !vaultId.trim())) ||
+          (password !== undefined && (typeof password !== 'string' || !password.length)) ||
+          (recoveryMode !== undefined && recoveryMode !== 'RECOVERABLE' && recoveryMode !== 'STRICT') ||
+          (expectedVaultIv !== undefined && expectedVaultIv !== null && typeof expectedVaultIv !== 'string') ||
+          (items !== undefined && (!Array.isArray(items) || items.some((item) =>
+            !item || ['id', 'title', 'category', 'secret'].some((field) => typeof item[field] !== 'string')
+          )))
+        ) {
+          res.writeHead(400);
+          res.end(JSON.stringify({ error: 'Provide a valid vault ID, password, recovery mode, and secret entries.' }));
+          return;
+        }
         const vId = vaultId || 'vault-demo-001';
         const pw = password || 'MasterPassword#2026';
         const mode = recoveryMode || 'RECOVERABLE';
-        this.state.clientLocalState.vaultId = vId;
-        this.state.clientLocalState.password = pw;
-        this.state.clientLocalState.recoveryMode = mode;
+        if (vId === this.state.clientLocalState.vaultId && !this.state.clientLocalState.dataKeyHex) {
+          res.writeHead(409);
+          res.end(JSON.stringify({ error: 'Recover the data key or log in before replacing this vault.' }));
+          return;
+        }
+        if (expectedVaultIv !== undefined) {
+          const currentIv = this.state.spStorage.hasVault(vId)
+            ? this.state.spStorage.getLoginData(vId).vaultCiphertext.iv
+            : null;
+          if (currentIv !== expectedVaultIv) {
+            res.writeHead(409);
+            res.end(JSON.stringify({ error: 'The vault changed while this form was open. Copy your new entries, then reopen Manage Secrets to load the current vault.' }));
+            return;
+          }
+        }
         this.state.seedDemoVault(vId, pw, items, mode, true);
         res.writeHead(200);
         res.end(
@@ -484,6 +509,8 @@ export class DashboardServer {
         // Decrypt vault items
         const decryptedBytes = decryptVault(loginData.vaultCiphertext, dataKey);
         const decryptedItems = JSON.parse(new TextDecoder().decode(decryptedBytes));
+        this.state.currentVaultItems = decryptedItems;
+        this.state.clientLocalState.activeItems = decryptedItems;
 
         if (autoDecrypt) {
           this.state.clientLocalState.isVaultUnlocked = true;
@@ -533,6 +560,8 @@ export class DashboardServer {
           const dataKey = Buffer.from(dataKeyHex, 'hex');
           const decryptedBytes = decryptVault(ciphertext, dataKey);
           const decryptedItems = JSON.parse(new TextDecoder().decode(decryptedBytes));
+          this.state.currentVaultItems = decryptedItems;
+          this.state.clientLocalState.activeItems = decryptedItems;
           this.state.clientLocalState.isVaultUnlocked = true;
           this.state.clientLocalState.decryptedItems = decryptedItems;
           this.state.clientLocalState.lastActionMessage =
@@ -558,8 +587,13 @@ export class DashboardServer {
         this.state.clientLocalState.decryptedItems = [];
         if (purgeKey) {
           this.state.clientLocalState.dataKeyHex = '';
+          this.state.clientLocalState.passwordKeyHex = '';
+          this.state.clientLocalState.recoveryKeyHex = '';
+          this.state.clientLocalState.password = '';
+          this.state.clientLocalState.activeItems = [];
+          this.state.currentVaultItems = [];
           this.state.clientLocalState.lastActionMessage =
-            '🔒 Vault locked. Plaintext wiped and Data Key (K_data) purged from client memory.';
+            'Key loss simulated. Loaded encryption keys, cached password and plaintext cleared. Recover K_data with Algorithm 2 or log in with your password.';
         } else {
           this.state.clientLocalState.lastActionMessage =
             '🔒 Vault locked. Plaintext wiped from memory. Data Key (K_data) retained in client keystore; click "Decrypt Vault" to reveal.';
@@ -593,6 +627,7 @@ export class DashboardServer {
         const spData = this.state.spStorage.getRecoveryData(vaultId);
         const kRec = reconstructRecoveryKey([userShare, spData.spShare]);
         const dataKey = unwrapKey(spData.wrappedKeyRec, kRec);
+        const items = JSON.parse(new TextDecoder().decode(decryptVault(spData.vaultCiphertext, dataKey)));
 
         // Derive new password wrapper
         const saltBytes = generateSalt(16);
@@ -605,6 +640,8 @@ export class DashboardServer {
         this.state.clientLocalState.passwordKeyHex = Buffer.from(newKPw).toString('hex');
         this.state.clientLocalState.salt = saltHex;
         this.state.clientLocalState.dataKeyHex = Buffer.from(dataKey).toString('hex');
+        this.state.currentVaultItems = items;
+        this.state.clientLocalState.activeItems = items;
         this.state.clientLocalState.isVaultUnlocked = false;
         this.state.clientLocalState.decryptedItems = [];
         this.state.clientLocalState.lastActionMessage =
@@ -824,6 +861,8 @@ export class DashboardServer {
         }
 
         const items = JSON.parse(new TextDecoder().decode(decryptedBytes));
+        this.state.currentVaultItems = items;
+        this.state.clientLocalState.activeItems = items;
         this.state.clientLocalState.isVaultUnlocked = false;
         this.state.clientLocalState.decryptedItems = [];
         this.state.activeRecoverySession = null;
@@ -935,6 +974,11 @@ export class DashboardServer {
       // 16. POST /api/vault/quick-seed
       // -----------------------------------------------------------------------
       if (pathname === '/api/vault/quick-seed' && method === 'POST') {
+        if (!this.state.clientLocalState.dataKeyHex) {
+          res.writeHead(409);
+          res.end(JSON.stringify({ error: 'Recover the data key or log in before reinitializing this vault.' }));
+          return;
+        }
         this.state.seedDemoVault();
         res.writeHead(200);
         res.end(JSON.stringify({ success: true }));
